@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m argent*)",
+      "Bash(python -c \"from argent*)",
+      "Bash(source .argent-env/bin/activate && python*)",
+      "Bash(cd /Users/romainhardy/code/argent && python*)",
+      "Bash(.argent-env/bin/python*)"
+    ]
+  }
+}
