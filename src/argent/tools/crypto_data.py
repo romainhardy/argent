@@ -6,6 +6,7 @@ from typing import Any
 
 from pycoingecko import CoinGeckoAPI
 
+from argent.tools.cache import cached, get_cache
 from argent.tools.rate_limiter import DataSource, get_rate_limiter
 
 
@@ -52,6 +53,9 @@ class CryptoDataClient:
         self._cg = CoinGeckoAPI()
         self._rate_limiter = get_rate_limiter()
         self._id_cache: dict[str, str] = SYMBOL_TO_ID.copy()
+        # Register dataclasses for cache deserialization
+        cache = get_cache()
+        cache.register_dataclass(CryptoPriceData)
 
     def _get_coin_id(self, symbol: str) -> str | None:
         """Convert a symbol to CoinGecko coin ID."""
@@ -72,6 +76,7 @@ class CryptoDataClient:
 
         return None
 
+    @cached("crypto_price")
     def get_current_price(self, symbols: list[str]) -> dict[str, CryptoPriceData]:
         """Get current prices for multiple cryptocurrencies."""
         self._rate_limiter.acquire_sync(DataSource.COINGECKO)
@@ -114,6 +119,7 @@ class CryptoDataClient:
 
         return result
 
+    @cached("crypto_history")
     def get_price_history(
         self,
         symbol: str,
@@ -163,6 +169,7 @@ class CryptoDataClient:
 
         return result
 
+    @cached("crypto_info")
     def get_coin_info(self, symbol: str) -> dict[str, Any] | None:
         """Get detailed information about a cryptocurrency."""
         coin_id = self._get_coin_id(symbol)
@@ -205,6 +212,7 @@ class CryptoDataClient:
             "price_change_1y": market_data.get("price_change_percentage_1y"),
         }
 
+    @cached("crypto_price", ttl=300)  # 5 minutes for global data
     def get_global_market_data(self) -> dict[str, Any]:
         """Get global cryptocurrency market data."""
         self._rate_limiter.acquire_sync(DataSource.COINGECKO)
@@ -224,6 +232,7 @@ class CryptoDataClient:
             "market_cap_change_24h": data.get("data", {}).get("market_cap_change_percentage_24h_usd"),
         }
 
+    @cached("crypto_price", ttl=900)  # 15 minutes for trending
     def get_trending(self) -> list[dict[str, Any]]:
         """Get trending cryptocurrencies."""
         self._rate_limiter.acquire_sync(DataSource.COINGECKO)

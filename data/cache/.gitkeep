@@ -1,0 +1,2 @@
+# This directory stores cached API responses
+# TTL-based caching reduces redundant API calls

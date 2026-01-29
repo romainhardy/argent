@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 
+from argent.tools.cache import cached, get_cache
 from argent.tools.rate_limiter import DataSource, get_rate_limiter
 
 
@@ -29,7 +30,11 @@ class NewsClient:
     def __init__(self):
         self._rate_limiter = get_rate_limiter()
         self._client = httpx.Client(timeout=30.0)
+        # Register dataclasses for cache deserialization
+        cache = get_cache()
+        cache.register_dataclass(NewsArticle)
 
+    @cached("news")
     def get_news_for_symbol(
         self,
         symbol: str,
@@ -75,14 +80,17 @@ class NewsClient:
 
         return articles
 
+    @cached("news")
     def get_market_news(self, limit: int = 10) -> list[NewsArticle]:
         """Fetch general market news using SPY as a proxy."""
         return self.get_news_for_symbol("SPY", limit=limit)
 
+    @cached("news")
     def get_crypto_news(self, limit: int = 10) -> list[NewsArticle]:
         """Fetch cryptocurrency news using BTC-USD as a proxy."""
         return self.get_news_for_symbol("BTC-USD", limit=limit)
 
+    # Note: analyze_sentiment_simple is not cached as it's a pure computation
     def analyze_sentiment_simple(self, text: str) -> dict[str, Any]:
         """
         Simple keyword-based sentiment analysis.

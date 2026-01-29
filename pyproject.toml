@@ -18,6 +18,8 @@ dependencies = [
     "scipy>=1.11",
     "click>=8.1",
     "rich>=13.0",
+    "mcp>=1.0.0",
+    "tenacity>=8.0.0",
 ]
 
 [project.optional-dependencies]

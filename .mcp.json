@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "argent-tools": {
+      "command": "python",
+      "args": ["-m", "argent.mcp.server"],
+      "cwd": "/Users/romainhardy/code/argent",
+      "env": {
+        "PYTHONPATH": "/Users/romainhardy/code/argent/src"
+      }
+    }
+  }
+}

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from argent.tools.cache import cached, get_cache
 from argent.tools.rate_limiter import DataSource, get_rate_limiter
 
 
@@ -62,6 +63,9 @@ class EconomicDataClient:
         self._api_key = api_key
         self._rate_limiter = get_rate_limiter()
         self._fred = None
+        # Register dataclasses for cache deserialization
+        cache = get_cache()
+        cache.register_dataclass(EconomicIndicator)
 
         if api_key:
             try:
@@ -75,6 +79,7 @@ class EconomicDataClient:
         """Ensure FRED client is available."""
         return self._fred is not None
 
+    @cached("economic_indicator")
     def get_series(
         self,
         series_id: str,
@@ -130,6 +135,7 @@ class EconomicDataClient:
         indicators = self.get_series(series_id, limit=1)
         return indicators[-1] if indicators else None
 
+    @cached("economic_indicator", ttl=86400)  # 24 hours for metadata
     def get_series_info(self, series_id: str) -> dict[str, Any] | None:
         """Get metadata about a FRED series."""
         if not self._ensure_fred():
@@ -151,6 +157,7 @@ class EconomicDataClient:
         except Exception:
             return None
 
+    @cached("macro_snapshot")
     def get_macro_snapshot(self) -> dict[str, Any]:
         """Get a snapshot of key macroeconomic indicators."""
         if not self._ensure_fred():
@@ -188,6 +195,7 @@ class EconomicDataClient:
 
         return snapshot
 
+    @cached("economic_indicator")
     def get_inflation_data(self, periods: int = 24) -> dict[str, Any]:
         """Get inflation-related indicators."""
         if not self._ensure_fred():
@@ -220,6 +228,7 @@ class EconomicDataClient:
             },
         }
 
+    @cached("economic_indicator")
     def get_employment_data(self, periods: int = 24) -> dict[str, Any]:
         """Get employment-related indicators."""
         if not self._ensure_fred():
@@ -250,6 +259,7 @@ class EconomicDataClient:
             },
         }
 
+    @cached("economic_indicator")
     def get_interest_rates(self) -> dict[str, Any]:
         """Get current interest rate data."""
         if not self._ensure_fred():

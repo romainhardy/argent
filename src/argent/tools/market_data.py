@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 import yfinance as yf
 
+from argent.tools.cache import cached, get_cache
 from argent.tools.rate_limiter import DataSource, get_rate_limiter
 
 
@@ -56,7 +57,12 @@ class MarketDataClient:
     def __init__(self, alpha_vantage_api_key: str | None = None):
         self.alpha_vantage_api_key = alpha_vantage_api_key
         self._rate_limiter = get_rate_limiter()
+        # Register dataclasses for cache deserialization
+        cache = get_cache()
+        cache.register_dataclass(PriceData)
+        cache.register_dataclass(CompanyInfo)
 
+    @cached("price_history")
     def get_price_history(
         self,
         symbol: str,
@@ -99,6 +105,7 @@ class MarketDataClient:
 
         return prices
 
+    @cached("current_price")
     def get_current_price(self, symbol: str) -> dict[str, Any]:
         """Get current price and basic info for a symbol."""
         self._rate_limiter.acquire_sync(DataSource.YAHOO_FINANCE)
@@ -119,6 +126,7 @@ class MarketDataClient:
             "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
         }
 
+    @cached("company_info")
     def get_company_info(self, symbol: str) -> CompanyInfo:
         """Get detailed company fundamental information."""
         self._rate_limiter.acquire_sync(DataSource.YAHOO_FINANCE)
@@ -149,6 +157,7 @@ class MarketDataClient:
             fifty_two_week_low=info.get("fiftyTwoWeekLow"),
         )
 
+    @cached("financials")
     def get_financials(self, symbol: str) -> dict[str, Any]:
         """Get company financial statements."""
         self._rate_limiter.acquire_sync(DataSource.YAHOO_FINANCE)
@@ -173,6 +182,7 @@ class MarketDataClient:
             "cash_flow": df_to_dict(ticker.cashflow),
         }
 
+    @cached("recommendations")
     def get_recommendations(self, symbol: str) -> list[dict[str, Any]]:
         """Get analyst recommendations for a symbol."""
         self._rate_limiter.acquire_sync(DataSource.YAHOO_FINANCE)
