@@ -1,13 +1,11 @@
 """Main orchestrator for financial analysis workflow."""
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, List, Optional
 
-from anthropic import Anthropic
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from argent.agents.data_collection import DataCollectionAgent
 from argent.agents.fundamental_analysis import FundamentalAnalysisAgent
 from argent.agents.macro_analysis import MacroAnalysisAgent
 from argent.agents.report import ReportAgent
@@ -19,6 +17,7 @@ from argent.orchestrator.state import AnalysisPhase, FinancialAnalysisState, Tim
 from argent.tools.crypto_data import CryptoDataClient
 from argent.tools.economic_data import EconomicDataClient
 from argent.tools.market_data import MarketDataClient
+from argent.tools.news import NewsClient
 
 
 @dataclass
@@ -37,19 +36,18 @@ class FinancialAdvisorOrchestrator:
     console: Console = field(default_factory=Console)
 
     # Clients
-    _anthropic: Anthropic | None = field(default=None, init=False)
-    _market_client: MarketDataClient | None = field(default=None, init=False)
-    _crypto_client: CryptoDataClient | None = field(default=None, init=False)
-    _economic_client: EconomicDataClient | None = field(default=None, init=False)
+    _market_client: Optional[MarketDataClient] = field(default=None, init=False)
+    _crypto_client: Optional[CryptoDataClient] = field(default=None, init=False)
+    _economic_client: Optional[EconomicDataClient] = field(default=None, init=False)
+    _news_client: Optional[NewsClient] = field(default=None, init=False)
 
-    # Agents
-    _data_agent: DataCollectionAgent | None = field(default=None, init=False)
-    _macro_agent: MacroAnalysisAgent | None = field(default=None, init=False)
-    _technical_agent: TechnicalAnalysisAgent | None = field(default=None, init=False)
-    _fundamental_agent: FundamentalAnalysisAgent | None = field(default=None, init=False)
-    _risk_agent: RiskAnalysisAgent | None = field(default=None, init=False)
-    _sentiment_agent: SentimentAnalysisAgent | None = field(default=None, init=False)
-    _report_agent: ReportAgent | None = field(default=None, init=False)
+    # Agents (computational, no API calls)
+    _macro_agent: Optional[MacroAnalysisAgent] = field(default=None, init=False)
+    _technical_agent: Optional[TechnicalAnalysisAgent] = field(default=None, init=False)
+    _fundamental_agent: Optional[FundamentalAnalysisAgent] = field(default=None, init=False)
+    _risk_agent: Optional[RiskAnalysisAgent] = field(default=None, init=False)
+    _sentiment_agent: Optional[SentimentAnalysisAgent] = field(default=None, init=False)
+    _report_agent: Optional[ReportAgent] = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         """Initialize clients and agents."""
@@ -58,43 +56,31 @@ class FinancialAdvisorOrchestrator:
 
     def _initialize_clients(self) -> None:
         """Initialize data clients."""
-        self._anthropic = Anthropic(api_key=self.settings.anthropic_api_key)
         self._market_client = MarketDataClient(
             alpha_vantage_api_key=self.settings.alpha_vantage_api_key
         )
         self._crypto_client = CryptoDataClient()
+        self._news_client = NewsClient()
         if self.settings.fred_api_key:
             self._economic_client = EconomicDataClient(api_key=self.settings.fred_api_key)
 
     def _initialize_agents(self) -> None:
-        """Initialize analysis agents."""
-        model = self.settings.model
-
-        self._data_agent = DataCollectionAgent(
-            client=self._anthropic,
-            model=model,
-            market_client=self._market_client,
-            crypto_client=self._crypto_client,
-            economic_client=self._economic_client,
-        )
-
-        self._macro_agent = MacroAnalysisAgent(client=self._anthropic, model=model)
-        self._technical_agent = TechnicalAnalysisAgent(client=self._anthropic, model=model)
+        """Initialize analysis agents (all computational, no AI API calls)."""
+        self._macro_agent = MacroAnalysisAgent()
+        self._technical_agent = TechnicalAnalysisAgent()
         self._fundamental_agent = FundamentalAnalysisAgent(
-            client=self._anthropic,
-            model=model,
             market_client=self._market_client,
         )
-        self._risk_agent = RiskAnalysisAgent(client=self._anthropic, model=model)
-        self._sentiment_agent = SentimentAnalysisAgent(client=self._anthropic, model=model)
-        self._report_agent = ReportAgent(client=self._anthropic, model=model)
+        self._risk_agent = RiskAnalysisAgent()
+        self._sentiment_agent = SentimentAnalysisAgent()
+        self._report_agent = ReportAgent()
 
     def run_analysis(
         self,
         symbols: list[str],
         request: str = "",
         time_horizon: str = "medium",
-        analysis_types: list[str] | None = None,
+        analysis_types: Optional[List[str]] = None,
         show_progress: bool = True,
     ) -> FinancialAnalysisState:
         """
@@ -234,6 +220,14 @@ class FinancialAdvisorOrchestrator:
                 except Exception as e:
                     state.errors.append(f"Failed to fetch economic data: {e}")
 
+            # Collect news data for sentiment analysis
+            progress.update(task, description="Fetching news data...")
+            try:
+                news_data = self._news_client.get_news_summary(state.symbols)
+                state.news_data = news_data
+            except Exception as e:
+                state.errors.append(f"Failed to fetch news: {e}")
+
             # Collect SPY data for beta calculations if not already included
             if "SPY" not in state.price_data:
                 progress.update(task, description="Fetching market benchmark...")
@@ -294,7 +288,6 @@ class FinancialAdvisorOrchestrator:
             symbols=state.symbols,
             time_horizon=state.time_horizon.value,
         )
-        state.token_usage.add(result.input_tokens, result.output_tokens)
         if result.success:
             state.macro_analysis = result.data
 
@@ -304,7 +297,6 @@ class FinancialAdvisorOrchestrator:
             price_data=state.price_data,
             symbols=state.symbols,
         )
-        state.token_usage.add(result.input_tokens, result.output_tokens)
         if result.success:
             state.technical_analysis = result.data
 
@@ -319,7 +311,6 @@ class FinancialAdvisorOrchestrator:
             company_data=state.company_data,
             symbols=stock_symbols,
         )
-        state.token_usage.add(result.input_tokens, result.output_tokens)
         if result.success:
             state.fundamental_analysis = result.data
 
@@ -328,9 +319,7 @@ class FinancialAdvisorOrchestrator:
         result = self._risk_agent.analyze(
             price_data=state.price_data,
             symbols=state.symbols,
-            time_horizon=state.time_horizon.value,
         )
-        state.token_usage.add(result.input_tokens, result.output_tokens)
         if result.success:
             state.risk_analysis = result.data
 
@@ -340,7 +329,6 @@ class FinancialAdvisorOrchestrator:
             news_data=state.news_data,
             symbols=state.symbols,
         )
-        state.token_usage.add(result.input_tokens, result.output_tokens)
         if result.success:
             state.sentiment_analysis = result.data
 
@@ -362,8 +350,6 @@ class FinancialAdvisorOrchestrator:
                 time_horizon=state.time_horizon.value,
                 request=state.analysis_request,
             )
-
-            state.token_usage.add(result.input_tokens, result.output_tokens)
 
             if result.success:
                 state.final_report = result.data
@@ -421,11 +407,7 @@ class FinancialAdvisorOrchestrator:
         if analysis_type == "technical":
             result = self._technical_agent.analyze(price_data, [symbol])
         elif analysis_type == "fundamental":
-            info = self._market_client.get_company_info(symbol)
-            result = self._fundamental_agent.analyze(
-                {symbol: {"name": info.name, "sector": info.sector}},
-                [symbol],
-            )
+            result = self._fundamental_agent.analyze({}, [symbol])
         elif analysis_type == "risk":
             result = self._risk_agent.analyze(price_data, [symbol])
         else:

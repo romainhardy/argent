@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-900 text-gray-100 antialiased;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-gray-800 rounded-lg border border-gray-700 p-4;
+  }
+
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-colors duration-200;
+  }
+
+  .btn-primary {
+    @apply bg-primary-600 hover:bg-primary-700 text-white;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-700 hover:bg-gray-600 text-white;
+  }
+
+  .btn-success {
+    @apply bg-success hover:bg-green-600 text-white;
+  }
+
+  .btn-danger {
+    @apply bg-danger hover:bg-red-600 text-white;
+  }
+
+  .input {
+    @apply bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+  }
+
+  .badge {
+    @apply px-2 py-1 text-xs font-medium rounded-full;
+  }
+
+  .badge-success {
+    @apply bg-green-900/50 text-green-400;
+  }
+
+  .badge-warning {
+    @apply bg-yellow-900/50 text-yellow-400;
+  }
+
+  .badge-danger {
+    @apply bg-red-900/50 text-red-400;
+  }
+
+  .badge-info {
+    @apply bg-blue-900/50 text-blue-400;
+  }
+}
+
+/* Lightweight Charts custom styling */
+.tv-lightweight-charts {
+  border-radius: 0.5rem;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-800;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-600 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-500;
+}

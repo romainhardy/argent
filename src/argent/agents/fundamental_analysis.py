@@ -1,230 +1,376 @@
-"""Fundamental analysis agent for company financials evaluation."""
+"""Fundamental analysis agent for company financials evaluation using computational methods."""
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
-from anthropic import Anthropic
-
-from argent.agents.base import AgentResult, BaseAgent, FinancialAgentType, ToolDefinition
-from argent.prompts.fundamental_analysis import FUNDAMENTAL_ANALYSIS_SYSTEM_PROMPT
+from argent.agents.base import AgentResult, FinancialAgentType
 from argent.tools.market_data import MarketDataClient
 
 
-@dataclass
-class FundamentalAnalysisAgent(BaseAgent):
-    """Agent responsible for fundamental analysis."""
+# Sector average benchmarks for comparison
+SECTOR_BENCHMARKS = {
+    "Technology": {"pe_ratio": 25, "profit_margin": 0.15, "roe": 0.18, "debt_to_equity": 0.5},
+    "Healthcare": {"pe_ratio": 20, "profit_margin": 0.12, "roe": 0.15, "debt_to_equity": 0.6},
+    "Financial Services": {"pe_ratio": 12, "profit_margin": 0.20, "roe": 0.12, "debt_to_equity": 2.0},
+    "Consumer Cyclical": {"pe_ratio": 18, "profit_margin": 0.08, "roe": 0.15, "debt_to_equity": 0.8},
+    "Communication Services": {"pe_ratio": 20, "profit_margin": 0.12, "roe": 0.10, "debt_to_equity": 0.7},
+    "Industrials": {"pe_ratio": 18, "profit_margin": 0.08, "roe": 0.12, "debt_to_equity": 0.9},
+    "Consumer Defensive": {"pe_ratio": 20, "profit_margin": 0.06, "roe": 0.15, "debt_to_equity": 0.7},
+    "Energy": {"pe_ratio": 10, "profit_margin": 0.08, "roe": 0.10, "debt_to_equity": 0.5},
+    "Utilities": {"pe_ratio": 15, "profit_margin": 0.10, "roe": 0.08, "debt_to_equity": 1.2},
+    "Real Estate": {"pe_ratio": 30, "profit_margin": 0.25, "roe": 0.05, "debt_to_equity": 1.0},
+    "Basic Materials": {"pe_ratio": 12, "profit_margin": 0.08, "roe": 0.10, "debt_to_equity": 0.6},
+}
 
-    client: Anthropic
-    model: str = "claude-sonnet-4-20250514"
-    max_turns: int = 10
+DEFAULT_BENCHMARK = {"pe_ratio": 18, "profit_margin": 0.10, "roe": 0.12, "debt_to_equity": 0.8}
+
+
+@dataclass
+class FundamentalAnalysisAgent:
+    """Agent responsible for fundamental analysis using computational methods."""
+
     market_client: MarketDataClient = field(default_factory=MarketDataClient)
 
     @property
     def agent_type(self) -> FinancialAgentType:
         return FinancialAgentType.FUNDAMENTAL_ANALYSIS
 
-    @property
-    def system_prompt(self) -> str:
-        return FUNDAMENTAL_ANALYSIS_SYSTEM_PROMPT
+    def _assess_valuation(
+        self, info: Any, sector_avg: dict[str, float]
+    ) -> dict[str, Any]:
+        """Assess company valuation metrics."""
+        pe_ratio = info.pe_ratio
+        forward_pe = info.forward_pe
+        peg_ratio = info.peg_ratio
+        price_to_book = info.price_to_book
 
-    def get_tools(self) -> list[ToolDefinition]:
-        return [
-            ToolDefinition(
-                name="get_financial_ratios",
-                description="Get key financial ratios for a company",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "symbol": {"type": "string", "description": "Stock ticker symbol"},
-                    },
-                    "required": ["symbol"],
-                },
-            ),
-            ToolDefinition(
-                name="get_financial_statements",
-                description="Get income statement, balance sheet, and cash flow data",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "symbol": {"type": "string", "description": "Stock ticker symbol"},
-                    },
-                    "required": ["symbol"],
-                },
-            ),
-            ToolDefinition(
-                name="get_analyst_recommendations",
-                description="Get analyst recommendations and ratings",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "symbol": {"type": "string", "description": "Stock ticker symbol"},
-                    },
-                    "required": ["symbol"],
-                },
-            ),
-            ToolDefinition(
-                name="compare_to_sector",
-                description="Compare company metrics to sector averages",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "symbol": {"type": "string", "description": "Stock ticker symbol"},
-                    },
-                    "required": ["symbol"],
-                },
-            ),
-        ]
+        score = 0
+        assessment_reasons = []
 
-    def execute_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
-        symbol = tool_input.get("symbol", "")
-
-        if tool_name == "get_financial_ratios":
-            info = self.market_client.get_company_info(symbol)
-            return {
-                "symbol": info.symbol,
-                "name": info.name,
-                "sector": info.sector,
-                "industry": info.industry,
-                "valuation": {
-                    "market_cap": info.market_cap,
-                    "pe_ratio": info.pe_ratio,
-                    "forward_pe": info.forward_pe,
-                    "peg_ratio": info.peg_ratio,
-                    "price_to_book": info.price_to_book,
-                },
-                "profitability": {
-                    "profit_margin": info.profit_margin,
-                    "operating_margin": info.operating_margin,
-                    "roe": info.roe,
-                },
-                "growth": {
-                    "revenue_growth": info.revenue_growth,
-                    "earnings_growth": info.earnings_growth,
-                },
-                "financial_health": {
-                    "debt_to_equity": info.debt_to_equity,
-                    "current_ratio": info.current_ratio,
-                },
-                "dividends": {
-                    "dividend_yield": info.dividend_yield,
-                },
-                "risk": {
-                    "beta": info.beta,
-                },
-                "price_range": {
-                    "fifty_two_week_high": info.fifty_two_week_high,
-                    "fifty_two_week_low": info.fifty_two_week_low,
-                },
-            }
-
-        elif tool_name == "get_financial_statements":
-            return self.market_client.get_financials(symbol)
-
-        elif tool_name == "get_analyst_recommendations":
-            recs = self.market_client.get_recommendations(symbol)
-            return {
-                "symbol": symbol,
-                "recent_recommendations": recs,
-                "summary": self._summarize_recommendations(recs),
-            }
-
-        elif tool_name == "compare_to_sector":
-            # Get company info
-            info = self.market_client.get_company_info(symbol)
-
-            # Define typical sector averages (simplified)
-            sector_averages = {
-                "Technology": {"pe_ratio": 25, "profit_margin": 0.15, "roe": 0.18},
-                "Healthcare": {"pe_ratio": 20, "profit_margin": 0.12, "roe": 0.15},
-                "Financial Services": {"pe_ratio": 12, "profit_margin": 0.20, "roe": 0.12},
-                "Consumer Cyclical": {"pe_ratio": 18, "profit_margin": 0.08, "roe": 0.15},
-                "Communication Services": {"pe_ratio": 20, "profit_margin": 0.12, "roe": 0.10},
-                "Industrials": {"pe_ratio": 18, "profit_margin": 0.08, "roe": 0.12},
-                "Consumer Defensive": {"pe_ratio": 20, "profit_margin": 0.06, "roe": 0.15},
-                "Energy": {"pe_ratio": 10, "profit_margin": 0.08, "roe": 0.10},
-                "Utilities": {"pe_ratio": 15, "profit_margin": 0.10, "roe": 0.08},
-                "Real Estate": {"pe_ratio": 30, "profit_margin": 0.25, "roe": 0.05},
-                "Basic Materials": {"pe_ratio": 12, "profit_margin": 0.08, "roe": 0.10},
-            }
-
-            sector = info.sector or "Unknown"
-            avg = sector_averages.get(sector, {"pe_ratio": 18, "profit_margin": 0.10, "roe": 0.12})
-
-            comparison = {
-                "symbol": symbol,
-                "sector": sector,
-                "company_metrics": {
-                    "pe_ratio": info.pe_ratio,
-                    "profit_margin": info.profit_margin,
-                    "roe": info.roe,
-                },
-                "sector_averages": avg,
-                "comparison": {},
-            }
-
-            # Compare each metric
-            if info.pe_ratio and avg["pe_ratio"]:
-                pe_diff = (info.pe_ratio - avg["pe_ratio"]) / avg["pe_ratio"] * 100
-                comparison["comparison"]["pe_ratio"] = {
-                    "diff_pct": pe_diff,
-                    "assessment": "expensive" if pe_diff > 20 else "cheap" if pe_diff < -20 else "fair",
-                }
-
-            if info.profit_margin and avg["profit_margin"]:
-                margin_diff = (info.profit_margin - avg["profit_margin"]) / avg["profit_margin"] * 100
-                comparison["comparison"]["profit_margin"] = {
-                    "diff_pct": margin_diff,
-                    "assessment": "above average" if margin_diff > 20 else "below average" if margin_diff < -20 else "average",
-                }
-
-            if info.roe and avg["roe"]:
-                roe_diff = (info.roe - avg["roe"]) / avg["roe"] * 100
-                comparison["comparison"]["roe"] = {
-                    "diff_pct": roe_diff,
-                    "assessment": "above average" if roe_diff > 20 else "below average" if roe_diff < -20 else "average",
-                }
-
-            return comparison
-
-        else:
-            raise ValueError(f"Unknown tool: {tool_name}")
-
-    def _summarize_recommendations(self, recs: list[dict]) -> dict[str, Any]:
-        """Summarize analyst recommendations."""
-        if not recs:
-            return {"count": 0, "consensus": "unknown"}
-
-        grades = {"buy": 0, "hold": 0, "sell": 0}
-
-        for rec in recs:
-            grade = (rec.get("to_grade") or "").lower()
-            if any(x in grade for x in ["buy", "outperform", "overweight"]):
-                grades["buy"] += 1
-            elif any(x in grade for x in ["sell", "underperform", "underweight"]):
-                grades["sell"] += 1
+        # P/E ratio assessment
+        if pe_ratio is not None:
+            pe_vs_sector = (pe_ratio / sector_avg["pe_ratio"]) if sector_avg["pe_ratio"] else 1
+            if pe_vs_sector < 0.8:
+                score += 2
+                assessment_reasons.append("Trading at discount to sector")
+            elif pe_vs_sector < 1.2:
+                score += 1
+                assessment_reasons.append("P/E in line with sector")
             else:
-                grades["hold"] += 1
+                score -= 1
+                assessment_reasons.append("Premium valuation vs sector")
 
-        total = sum(grades.values())
-        if total == 0:
-            return {"count": 0, "consensus": "unknown"}
+        # PEG ratio assessment (growth-adjusted)
+        if peg_ratio is not None:
+            if peg_ratio < 1:
+                score += 2
+                assessment_reasons.append("Attractive PEG ratio")
+            elif peg_ratio < 2:
+                score += 1
+            else:
+                score -= 1
+                assessment_reasons.append("High PEG suggests overvaluation")
 
-        # Determine consensus
-        if grades["buy"] > grades["hold"] + grades["sell"]:
-            consensus = "buy"
-        elif grades["sell"] > grades["buy"] + grades["hold"]:
-            consensus = "sell"
+        # Forward P/E vs trailing (growth expectations)
+        if forward_pe and pe_ratio:
+            if forward_pe < pe_ratio * 0.85:
+                score += 1
+                assessment_reasons.append("Earnings expected to grow")
+            elif forward_pe > pe_ratio * 1.15:
+                score -= 1
+                assessment_reasons.append("Earnings expected to decline")
+
+        # Determine overall assessment
+        if score >= 3:
+            assessment = "undervalued"
+        elif score >= 1:
+            assessment = "fair"
         else:
-            consensus = "hold"
+            assessment = "overvalued"
 
         return {
-            "count": total,
-            "buy": grades["buy"],
-            "hold": grades["hold"],
-            "sell": grades["sell"],
-            "consensus": consensus,
-            "buy_pct": grades["buy"] / total * 100,
+            "pe_ratio": pe_ratio,
+            "forward_pe": forward_pe,
+            "peg_ratio": peg_ratio,
+            "price_to_book": price_to_book,
+            "assessment": assessment,
+            "score": min(max(score / 3, -1), 1),  # Normalize to -1 to 1
+            "reasons": assessment_reasons,
         }
+
+    def _assess_profitability(
+        self, info: Any, sector_avg: dict[str, float]
+    ) -> dict[str, Any]:
+        """Assess company profitability metrics."""
+        profit_margin = info.profit_margin
+        operating_margin = info.operating_margin
+        roe = info.roe
+
+        score = 0
+        assessment_reasons = []
+
+        # Profit margin assessment
+        if profit_margin is not None:
+            if profit_margin > sector_avg["profit_margin"] * 1.3:
+                score += 2
+                assessment_reasons.append("Strong profit margins")
+            elif profit_margin > sector_avg["profit_margin"] * 0.8:
+                score += 1
+                assessment_reasons.append("Adequate profit margins")
+            else:
+                score -= 1
+                assessment_reasons.append("Below-average profit margins")
+
+        # ROE assessment
+        if roe is not None:
+            if roe > 0.20:
+                score += 2
+                assessment_reasons.append("Excellent return on equity")
+            elif roe > 0.10:
+                score += 1
+            elif roe > 0:
+                pass
+            else:
+                score -= 2
+                assessment_reasons.append("Negative ROE is concerning")
+
+        # Determine overall assessment
+        if score >= 3:
+            assessment = "excellent"
+        elif score >= 2:
+            assessment = "good"
+        elif score >= 0:
+            assessment = "average"
+        else:
+            assessment = "poor"
+
+        return {
+            "profit_margin": profit_margin,
+            "operating_margin": operating_margin,
+            "roe": roe,
+            "assessment": assessment,
+            "score": min(max(score / 3, -1), 1),
+            "reasons": assessment_reasons,
+        }
+
+    def _assess_growth(self, info: Any) -> dict[str, Any]:
+        """Assess company growth metrics."""
+        revenue_growth = info.revenue_growth
+        earnings_growth = info.earnings_growth
+
+        score = 0
+        assessment_reasons = []
+
+        # Revenue growth assessment
+        if revenue_growth is not None:
+            if revenue_growth > 0.20:
+                score += 2
+                assessment_reasons.append("Strong revenue growth")
+            elif revenue_growth > 0.10:
+                score += 1
+                assessment_reasons.append("Moderate revenue growth")
+            elif revenue_growth > 0:
+                pass
+            else:
+                score -= 1
+                assessment_reasons.append("Revenue declining")
+
+        # Earnings growth assessment
+        if earnings_growth is not None:
+            if earnings_growth > 0.25:
+                score += 2
+                assessment_reasons.append("Strong earnings growth")
+            elif earnings_growth > 0.10:
+                score += 1
+            elif earnings_growth > 0:
+                pass
+            else:
+                score -= 1
+                assessment_reasons.append("Earnings declining")
+
+        # Determine overall assessment
+        if score >= 3:
+            assessment = "high"
+        elif score >= 1:
+            assessment = "moderate"
+        elif score >= 0:
+            assessment = "low"
+        else:
+            assessment = "negative"
+
+        return {
+            "revenue_growth": revenue_growth,
+            "earnings_growth": earnings_growth,
+            "assessment": assessment,
+            "score": min(max(score / 3, -1), 1),
+            "reasons": assessment_reasons,
+        }
+
+    def _assess_financial_health(
+        self, info: Any, sector_avg: dict[str, float]
+    ) -> dict[str, Any]:
+        """Assess company financial health metrics."""
+        debt_to_equity = info.debt_to_equity
+        current_ratio = info.current_ratio
+
+        score = 0
+        assessment_reasons = []
+
+        # Debt-to-equity assessment
+        if debt_to_equity is not None:
+            if debt_to_equity < sector_avg["debt_to_equity"] * 0.5:
+                score += 2
+                assessment_reasons.append("Low debt levels")
+            elif debt_to_equity < sector_avg["debt_to_equity"] * 1.5:
+                score += 1
+                assessment_reasons.append("Manageable debt")
+            else:
+                score -= 1
+                assessment_reasons.append("High debt levels")
+
+        # Current ratio assessment (liquidity)
+        if current_ratio is not None:
+            if current_ratio > 2:
+                score += 2
+                assessment_reasons.append("Strong liquidity position")
+            elif current_ratio > 1:
+                score += 1
+                assessment_reasons.append("Adequate liquidity")
+            else:
+                score -= 2
+                assessment_reasons.append("Liquidity concerns")
+
+        # Determine overall assessment
+        if score >= 3:
+            assessment = "strong"
+        elif score >= 1:
+            assessment = "adequate"
+        else:
+            assessment = "weak"
+
+        return {
+            "debt_to_equity": debt_to_equity,
+            "current_ratio": current_ratio,
+            "assessment": assessment,
+            "score": min(max(score / 3, -1), 1),
+            "reasons": assessment_reasons,
+        }
+
+    def _get_analyst_sentiment(self, symbol: str) -> dict[str, Any]:
+        """Get analyst recommendations and summarize."""
+        try:
+            recs = self.market_client.get_recommendations(symbol)
+            if not recs:
+                return {"consensus": "unknown", "buy_pct": None, "count": 0}
+
+            grades = {"buy": 0, "hold": 0, "sell": 0}
+            for rec in recs:
+                grade = (rec.get("to_grade") or "").lower()
+                if any(x in grade for x in ["buy", "outperform", "overweight"]):
+                    grades["buy"] += 1
+                elif any(x in grade for x in ["sell", "underperform", "underweight"]):
+                    grades["sell"] += 1
+                else:
+                    grades["hold"] += 1
+
+            total = sum(grades.values())
+            if total == 0:
+                return {"consensus": "unknown", "buy_pct": None, "count": 0}
+
+            if grades["buy"] > grades["hold"] + grades["sell"]:
+                consensus = "buy"
+            elif grades["sell"] > grades["buy"] + grades["hold"]:
+                consensus = "sell"
+            else:
+                consensus = "hold"
+
+            return {
+                "consensus": consensus,
+                "buy_pct": grades["buy"] / total * 100,
+                "count": total,
+            }
+        except Exception:
+            return {"consensus": "unknown", "buy_pct": None, "count": 0}
+
+    def _identify_strengths_concerns(
+        self,
+        valuation: dict[str, Any],
+        profitability: dict[str, Any],
+        growth: dict[str, Any],
+        health: dict[str, Any],
+    ) -> tuple[list[str], list[str]]:
+        """Identify key strengths and concerns."""
+        strengths = []
+        concerns = []
+
+        # Collect from each assessment
+        for data in [valuation, profitability, growth, health]:
+            for reason in data.get("reasons", []):
+                if any(word in reason.lower() for word in ["strong", "excellent", "attractive", "low debt", "discount"]):
+                    strengths.append(reason)
+                elif any(word in reason.lower() for word in ["weak", "poor", "concern", "high", "declining", "negative"]):
+                    concerns.append(reason)
+
+        # Limit to top items
+        return strengths[:5], concerns[:5]
+
+    def _calculate_overall_score(
+        self,
+        valuation: dict[str, Any],
+        profitability: dict[str, Any],
+        growth: dict[str, Any],
+        health: dict[str, Any],
+        sentiment: dict[str, Any],
+    ) -> float:
+        """Calculate overall fundamental score."""
+        weights = {
+            "valuation": 0.25,
+            "profitability": 0.25,
+            "growth": 0.25,
+            "health": 0.15,
+            "sentiment": 0.10,
+        }
+
+        score = 0
+        score += valuation.get("score", 0) * weights["valuation"]
+        score += profitability.get("score", 0) * weights["profitability"]
+        score += growth.get("score", 0) * weights["growth"]
+        score += health.get("score", 0) * weights["health"]
+
+        # Sentiment score
+        if sentiment.get("consensus") == "buy":
+            score += 1 * weights["sentiment"]
+        elif sentiment.get("consensus") == "sell":
+            score -= 1 * weights["sentiment"]
+
+        return score
+
+    def _generate_fair_value_assessment(
+        self, overall_score: float, valuation: dict[str, Any]
+    ) -> str:
+        """Generate fair value assessment text."""
+        if overall_score > 0.5:
+            base = "Fundamentals are strong. "
+        elif overall_score > 0:
+            base = "Fundamentals are adequate. "
+        else:
+            base = "Fundamentals show weakness. "
+
+        val_assessment = valuation.get("assessment", "fair")
+        if val_assessment == "undervalued":
+            return base + "Current valuation appears attractive relative to fundamentals."
+        elif val_assessment == "overvalued":
+            return base + "Current valuation appears stretched relative to fundamentals."
+        else:
+            return base + "Current valuation appears fair relative to fundamentals."
+
+    def _is_crypto(self, symbol: str) -> bool:
+        """Check if a symbol is a cryptocurrency."""
+        crypto_symbols = {
+            "BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "DOT",
+            "MATIC", "LINK", "AVAX", "UNI", "ATOM", "LTC", "FIL",
+        }
+        return symbol.upper() in crypto_symbols
 
     def analyze(
         self,
@@ -232,7 +378,7 @@ class FundamentalAnalysisAgent(BaseAgent):
         symbols: list[str],
     ) -> AgentResult:
         """
-        Perform fundamental analysis on companies.
+        Perform fundamental analysis using computational methods.
 
         Args:
             company_data: Previously collected company data
@@ -248,95 +394,77 @@ class FundamentalAnalysisAgent(BaseAgent):
             return AgentResult(
                 success=True,
                 data={"message": "No stocks to analyze for fundamentals", "symbols": {}},
+                error=None,
             )
 
-        task = f"""Perform comprehensive fundamental analysis on the following stocks: {stock_symbols}
+        results = {"symbols": {}}
 
-For each stock, analyze:
-1. Valuation Assessment
-   - P/E ratio analysis (trailing and forward)
-   - PEG ratio (growth-adjusted valuation)
-   - Price-to-book value
-   - Compare to historical and sector averages
+        for symbol in stock_symbols:
+            try:
+                # Get company info
+                info = self.market_client.get_company_info(symbol)
 
-2. Profitability Analysis
-   - Profit margins (gross, operating, net)
-   - Return on equity (ROE)
-   - Return on assets (ROA)
-   - Margin trends
+                # Get sector benchmark
+                sector = info.sector or "Unknown"
+                sector_avg = SECTOR_BENCHMARKS.get(sector, DEFAULT_BENCHMARK)
 
-3. Growth Prospects
-   - Revenue growth rate
-   - Earnings growth rate
-   - Growth sustainability
+                # Assess each dimension
+                valuation = self._assess_valuation(info, sector_avg)
+                profitability = self._assess_profitability(info, sector_avg)
+                growth = self._assess_growth(info)
+                health = self._assess_financial_health(info, sector_avg)
+                sentiment = self._get_analyst_sentiment(symbol)
 
-4. Financial Health
-   - Debt-to-equity ratio
-   - Current ratio
-   - Interest coverage
-   - Cash position
+                # Calculate overall score
+                overall_score = self._calculate_overall_score(
+                    valuation, profitability, growth, health, sentiment
+                )
 
-5. Competitive Position
-   - Market position in sector
-   - Competitive advantages (moats)
-   - Industry dynamics
+                # Identify strengths and concerns
+                strengths, concerns = self._identify_strengths_concerns(
+                    valuation, profitability, growth, health
+                )
 
-6. Analyst Sentiment
-   - Consensus recommendations
-   - Recent rating changes
+                # Generate fair value assessment
+                fair_value = self._generate_fair_value_assessment(overall_score, valuation)
 
-Return your analysis as structured JSON with the following schema:
-{{
-    "symbols": {{
-        "<symbol>": {{
-            "name": "string",
-            "sector": "string",
-            "valuation": {{
-                "pe_ratio": number,
-                "forward_pe": number,
-                "peg_ratio": number,
-                "price_to_book": number,
-                "assessment": "undervalued|fair|overvalued",
-                "score": number
-            }},
-            "profitability": {{
-                "profit_margin": number,
-                "operating_margin": number,
-                "roe": number,
-                "assessment": "excellent|good|average|poor",
-                "score": number
-            }},
-            "growth": {{
-                "revenue_growth": number,
-                "earnings_growth": number,
-                "assessment": "high|moderate|low|negative",
-                "score": number
-            }},
-            "financial_health": {{
-                "debt_to_equity": number,
-                "current_ratio": number,
-                "assessment": "strong|adequate|weak",
-                "score": number
-            }},
-            "analyst_sentiment": {{
-                "consensus": "buy|hold|sell",
-                "buy_pct": number
-            }},
-            "overall_score": number,
-            "key_strengths": ["string"],
-            "key_concerns": ["string"],
-            "fair_value_assessment": "string"
-        }}
-    }},
-    "summary": "string"
-}}"""
+                results["symbols"][symbol] = {
+                    "name": info.name,
+                    "sector": sector,
+                    "industry": info.industry,
+                    "valuation": valuation,
+                    "profitability": profitability,
+                    "growth": growth,
+                    "financial_health": health,
+                    "analyst_sentiment": sentiment,
+                    "overall_score": overall_score,
+                    "key_strengths": strengths,
+                    "key_concerns": concerns,
+                    "fair_value_assessment": fair_value,
+                }
 
-        return self.run(task, context={"company_data": company_data, "stock_symbols": stock_symbols})
+            except Exception as e:
+                results["symbols"][symbol] = {
+                    "error": f"Failed to analyze {symbol}: {str(e)}",
+                    "overall_score": 0,
+                }
 
-    def _is_crypto(self, symbol: str) -> bool:
-        """Check if a symbol is a cryptocurrency."""
-        crypto_symbols = {
-            "BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "DOT",
-            "MATIC", "LINK", "AVAX", "UNI", "ATOM", "LTC", "FIL",
-        }
-        return symbol.upper() in crypto_symbols
+        # Generate summary
+        analyzed = [s for s, d in results["symbols"].items() if "error" not in d]
+        if analyzed:
+            avg_score = sum(results["symbols"][s]["overall_score"] for s in analyzed) / len(analyzed)
+            if avg_score > 0.3:
+                outlook = "positive"
+            elif avg_score > -0.3:
+                outlook = "neutral"
+            else:
+                outlook = "negative"
+            results["summary"] = f"Fundamental analysis complete. Overall outlook: {outlook}. Analyzed {len(analyzed)} stocks."
+        else:
+            results["summary"] = "No stocks successfully analyzed."
+
+        return AgentResult(
+            success=True,
+            data=results,
+            error=None,
+        )

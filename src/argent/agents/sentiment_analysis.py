@@ -1,170 +1,161 @@
-"""Sentiment analysis agent for news and market sentiment."""
+"""Sentiment analysis agent using rule-based analysis."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
-from anthropic import Anthropic
+from argent.agents.base import AgentResult, FinancialAgentType
 
-from argent.agents.base import AgentResult, BaseAgent, FinancialAgentType, ToolDefinition
-from argent.prompts.sentiment_analysis import SENTIMENT_ANALYSIS_SYSTEM_PROMPT
-from argent.tools.news import NewsClient
+
+# Simple sentiment keywords for rule-based analysis
+POSITIVE_KEYWORDS = [
+    "beat", "beats", "exceeds", "exceeded", "surpass", "surpassed", "strong", "growth",
+    "profit", "profitable", "gain", "gains", "up", "rise", "rises", "rising", "rally",
+    "bullish", "upgrade", "upgraded", "buy", "outperform", "positive", "record", "high",
+    "surge", "surges", "jump", "jumps", "soar", "soars", "boom", "breakthrough", "success"
+]
+
+NEGATIVE_KEYWORDS = [
+    "miss", "misses", "missed", "below", "decline", "declines", "declining", "fall",
+    "falls", "falling", "drop", "drops", "loss", "losses", "down", "weak", "weakness",
+    "bearish", "downgrade", "downgraded", "sell", "underperform", "negative", "low",
+    "plunge", "plunges", "crash", "crashes", "slump", "slumps", "fail", "fails", "concern"
+]
 
 
 @dataclass
-class SentimentAnalysisAgent(BaseAgent):
-    """Agent responsible for sentiment analysis."""
-
-    client: Anthropic
-    model: str = "claude-sonnet-4-20250514"
-    max_turns: int = 8
-    news_client: NewsClient = field(default_factory=NewsClient)
+class SentimentAnalysisAgent:
+    """Agent responsible for sentiment analysis using rule-based methods."""
 
     @property
     def agent_type(self) -> FinancialAgentType:
         return FinancialAgentType.SENTIMENT_ANALYSIS
 
-    @property
-    def system_prompt(self) -> str:
-        return SENTIMENT_ANALYSIS_SYSTEM_PROMPT
+    def _analyze_headline(self, headline: str) -> dict[str, Any]:
+        """Analyze sentiment of a single headline using keyword matching."""
+        headline_lower = headline.lower()
 
-    def get_tools(self) -> list[ToolDefinition]:
-        return [
-            ToolDefinition(
-                name="get_symbol_news",
-                description="Get recent news articles for a symbol",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "symbol": {"type": "string", "description": "Symbol to get news for"},
-                        "limit": {"type": "integer", "description": "Max articles", "default": 10},
-                    },
-                    "required": ["symbol"],
-                },
-            ),
-            ToolDefinition(
-                name="get_market_news",
-                description="Get general market news",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "limit": {"type": "integer", "description": "Max articles", "default": 10},
-                    },
-                },
-            ),
-            ToolDefinition(
-                name="analyze_headline_sentiment",
-                description="Analyze sentiment of a news headline",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "headline": {"type": "string", "description": "News headline to analyze"},
-                    },
-                    "required": ["headline"],
-                },
-            ),
-        ]
+        positive_count = sum(1 for word in POSITIVE_KEYWORDS if word in headline_lower)
+        negative_count = sum(1 for word in NEGATIVE_KEYWORDS if word in headline_lower)
 
-    def execute_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
-        if tool_name == "get_symbol_news":
-            articles = self.news_client.get_news_for_symbol(
-                symbol=tool_input["symbol"],
-                limit=tool_input.get("limit", 10),
-            )
-            return [
-                {
-                    "title": a.title,
-                    "source": a.source,
-                    "published_at": a.published_at.isoformat() if a.published_at else None,
-                    "url": a.url,
-                }
-                for a in articles
-            ]
-
-        elif tool_name == "get_market_news":
-            articles = self.news_client.get_market_news(limit=tool_input.get("limit", 10))
-            return [
-                {
-                    "title": a.title,
-                    "source": a.source,
-                    "published_at": a.published_at.isoformat() if a.published_at else None,
-                    "url": a.url,
-                }
-                for a in articles
-            ]
-
-        elif tool_name == "analyze_headline_sentiment":
-            return self.news_client.analyze_sentiment_simple(tool_input["headline"])
-
+        if positive_count > negative_count:
+            sentiment = "positive"
+            score = min(positive_count / 3, 1.0)
+        elif negative_count > positive_count:
+            sentiment = "negative"
+            score = -min(negative_count / 3, 1.0)
         else:
-            raise ValueError(f"Unknown tool: {tool_name}")
+            sentiment = "neutral"
+            score = 0.0
+
+        return {"sentiment": sentiment, "score": score}
 
     def analyze(
         self,
-        news_data: dict[str, Any],
+        news_data: dict[str, list[dict[str, Any]]],
         symbols: list[str],
     ) -> AgentResult:
         """
-        Perform sentiment analysis on news and market data.
+        Perform sentiment analysis on news data using rule-based methods.
 
         Args:
-            news_data: Previously collected news data
-            symbols: List of symbols being analyzed
+            news_data: Dict mapping symbol to list of news articles
+            symbols: List of symbols to analyze
 
         Returns:
             AgentResult with sentiment analysis
         """
-        task = f"""Perform comprehensive sentiment analysis for the following symbols: {symbols}
+        results = {"symbols": {}}
 
-Analyze:
-1. News Sentiment
-   - Analyze headlines for each symbol
-   - Identify key themes and topics
-   - Assess overall news tone
+        for symbol in symbols:
+            articles = news_data.get(symbol, [])
 
-2. Market Sentiment Indicators
-   - Fear/greed assessment
-   - Institutional vs retail sentiment signals
-   - Options market sentiment (if available)
+            if not articles:
+                results["symbols"][symbol] = {
+                    "overall": "neutral",
+                    "score": 0.0,
+                    "news_count": 0,
+                    "positive_count": 0,
+                    "negative_count": 0,
+                    "neutral_count": 0,
+                    "recent_headlines": [],
+                    "interpretation": f"No news data available for {symbol}",
+                }
+                continue
 
-3. Social/Media Buzz
-   - Notable mentions or trends
-   - Viral news or events
-   - Influencer opinions
+            # Analyze each article
+            sentiments = []
+            analyzed_headlines = []
 
-4. Sentiment Impact Assessment
-   - How sentiment may affect price
-   - Contrarian indicators
-   - Sentiment extremes to watch
+            for article in articles[:20]:  # Limit to most recent 20
+                headline = article.get("title", article.get("headline", ""))
+                if not headline:
+                    continue
 
-For each symbol, provide:
-- News sentiment score (-1 to 1)
-- Key positive catalysts
-- Key negative concerns
-- Overall sentiment assessment
+                analysis = self._analyze_headline(headline)
+                sentiments.append(analysis)
+                analyzed_headlines.append({
+                    "title": headline,
+                    "sentiment": analysis["sentiment"],
+                    "source": article.get("source", "Unknown"),
+                    "date": article.get("published_at", article.get("date", "")),
+                })
 
-Return your analysis as structured JSON with the following schema:
-{{
-    "symbols": {{
-        "<symbol>": {{
-            "news_sentiment": {{
-                "score": number,
-                "assessment": "bullish|neutral|bearish",
-                "article_count": number,
-                "key_themes": ["string"]
-            }},
-            "positive_catalysts": ["string"],
-            "negative_concerns": ["string"],
-            "notable_events": ["string"],
-            "sentiment_trend": "improving|stable|deteriorating"
-        }}
-    }},
-    "market_sentiment": {{
-        "overall": "bullish|neutral|bearish",
-        "fear_greed_estimate": "extreme_fear|fear|neutral|greed|extreme_greed",
-        "key_market_themes": ["string"]
-    }},
-    "contrarian_signals": ["string"],
-    "summary": "string"
-}}"""
+            if not sentiments:
+                results["symbols"][symbol] = {
+                    "overall": "neutral",
+                    "score": 0.0,
+                    "news_count": 0,
+                    "positive_count": 0,
+                    "negative_count": 0,
+                    "neutral_count": 0,
+                    "recent_headlines": [],
+                    "interpretation": f"No analyzable headlines for {symbol}",
+                }
+                continue
 
-        return self.run(task, context={"news_data": news_data, "symbols": symbols})
+            # Aggregate sentiment
+            positive_count = sum(1 for s in sentiments if s["sentiment"] == "positive")
+            negative_count = sum(1 for s in sentiments if s["sentiment"] == "negative")
+            neutral_count = sum(1 for s in sentiments if s["sentiment"] == "neutral")
+            total = len(sentiments)
+
+            avg_score = sum(s["score"] for s in sentiments) / total
+
+            if avg_score > 0.2:
+                overall = "bullish"
+            elif avg_score < -0.2:
+                overall = "bearish"
+            else:
+                overall = "neutral"
+
+            # Generate interpretation
+            if overall == "bullish":
+                interpretation = f"News sentiment for {symbol} is positive with {positive_count} bullish headlines out of {total}. Market sentiment appears favorable."
+            elif overall == "bearish":
+                interpretation = f"News sentiment for {symbol} is negative with {negative_count} bearish headlines out of {total}. Caution advised."
+            else:
+                interpretation = f"News sentiment for {symbol} is mixed with no clear directional bias."
+
+            results["symbols"][symbol] = {
+                "overall": overall,
+                "score": avg_score,
+                "news_count": total,
+                "positive_count": positive_count,
+                "negative_count": negative_count,
+                "neutral_count": neutral_count,
+                "recent_headlines": analyzed_headlines[:5],
+                "interpretation": interpretation,
+            }
+
+        # Overall summary
+        sentiments_summary = []
+        for sym, data in results["symbols"].items():
+            sentiments_summary.append(f"{sym}: {data['overall']}")
+
+        results["summary"] = "Sentiment analysis complete. " + "; ".join(sentiments_summary) if sentiments_summary else "No symbols analyzed."
+
+        return AgentResult(
+            success=True,
+            data=results,
+            error=None,
+        )

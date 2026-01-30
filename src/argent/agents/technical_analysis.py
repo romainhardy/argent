@@ -1,319 +1,214 @@
 """Technical analysis agent for price action and indicator analysis."""
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Optional
 
-from anthropic import Anthropic
-
-from argent.agents.base import AgentResult, BaseAgent, FinancialAgentType, ToolDefinition
-from argent.prompts.technical_analysis import TECHNICAL_ANALYSIS_SYSTEM_PROMPT
+from argent.agents.base import AgentResult, FinancialAgentType
 from argent.tools import calculations
 
 
 @dataclass
-class TechnicalAnalysisAgent(BaseAgent):
-    """Agent responsible for technical analysis."""
+class TechnicalAnalysisAgent:
+    """Agent responsible for technical analysis using computational methods."""
 
-    client: Anthropic
-    model: str = "claude-sonnet-4-20250514"
-    max_turns: int = 10
     _price_cache: dict[str, list[float]] = field(default_factory=dict)
 
     @property
     def agent_type(self) -> FinancialAgentType:
         return FinancialAgentType.TECHNICAL_ANALYSIS
 
-    @property
-    def system_prompt(self) -> str:
-        return TECHNICAL_ANALYSIS_SYSTEM_PROMPT
+    def _calculate_moving_averages(self, symbol: str, prices: list[float]) -> dict[str, Any]:
+        """Calculate moving averages for a symbol."""
+        result = {"current_price": prices[-1]}
 
-    def get_tools(self) -> list[ToolDefinition]:
-        return [
-            ToolDefinition(
-                name="calculate_moving_averages",
-                description="Calculate SMA and EMA for given periods",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "symbol": {"type": "string", "description": "Symbol to analyze"},
-                        "periods": {
-                            "type": "array",
-                            "items": {"type": "integer"},
-                            "description": "Periods for moving averages (e.g., [20, 50, 200])",
-                        },
-                    },
-                    "required": ["symbol"],
-                },
-            ),
-            ToolDefinition(
-                name="calculate_rsi",
-                description="Calculate Relative Strength Index",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "symbol": {"type": "string", "description": "Symbol to analyze"},
-                        "period": {
-                            "type": "integer",
-                            "description": "RSI period (default: 14)",
-                            "default": 14,
-                        },
-                    },
-                    "required": ["symbol"],
-                },
-            ),
-            ToolDefinition(
-                name="calculate_macd",
-                description="Calculate MACD indicator",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "symbol": {"type": "string", "description": "Symbol to analyze"},
-                        "fast_period": {"type": "integer", "default": 12},
-                        "slow_period": {"type": "integer", "default": 26},
-                        "signal_period": {"type": "integer", "default": 9},
-                    },
-                    "required": ["symbol"],
-                },
-            ),
-            ToolDefinition(
-                name="calculate_bollinger_bands",
-                description="Calculate Bollinger Bands",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "symbol": {"type": "string", "description": "Symbol to analyze"},
-                        "period": {"type": "integer", "default": 20},
-                        "std_dev": {"type": "number", "default": 2.0},
-                    },
-                    "required": ["symbol"],
-                },
-            ),
-            ToolDefinition(
-                name="identify_support_resistance",
-                description="Identify key support and resistance levels",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "symbol": {"type": "string", "description": "Symbol to analyze"},
-                    },
-                    "required": ["symbol"],
-                },
-            ),
-            ToolDefinition(
-                name="calculate_trend_strength",
-                description="Calculate trend direction and strength",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "symbol": {"type": "string", "description": "Symbol to analyze"},
-                        "period": {"type": "integer", "default": 20},
-                    },
-                    "required": ["symbol"],
-                },
-            ),
-            ToolDefinition(
-                name="get_all_signals",
-                description="Get comprehensive technical signals for a symbol",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "symbol": {"type": "string", "description": "Symbol to analyze"},
-                    },
-                    "required": ["symbol"],
-                },
-            ),
-        ]
+        for period in [20, 50, 200]:
+            sma = calculations.calculate_sma(prices, period)
+            ema = calculations.calculate_ema(prices, period)
+            if sma:
+                result[f"sma_{period}"] = sma[-1]
+                result[f"price_vs_sma_{period}"] = (prices[-1] / sma[-1] - 1) * 100
+            if ema:
+                result[f"ema_{period}"] = ema[-1]
 
-    def execute_tool(self, tool_name: str, tool_input: dict[str, Any]) -> Any:
-        symbol = tool_input.get("symbol", "")
-        prices = self._price_cache.get(symbol, [])
+        # Golden/Death cross detection
+        sma_50 = calculations.calculate_sma(prices, 50)
+        sma_200 = calculations.calculate_sma(prices, 200)
+        if sma_50 and sma_200:
+            result["golden_cross"] = sma_50[-1] > sma_200[-1]
+            result["ma_spread"] = (sma_50[-1] / sma_200[-1] - 1) * 100
 
-        if not prices:
-            return {"error": f"No price data available for {symbol}"}
+        return result
 
-        if tool_name == "calculate_moving_averages":
-            periods = tool_input.get("periods", [20, 50, 200])
-            result = {"symbol": symbol, "current_price": prices[-1]}
+    def _calculate_rsi(self, prices: list[float], period: int = 14) -> dict[str, Any]:
+        """Calculate RSI indicator."""
+        rsi = calculations.calculate_rsi(prices, period)
+        if not rsi:
+            return {"rsi": None, "signal": "unknown"}
 
-            for period in periods:
-                sma = calculations.calculate_sma(prices, period)
-                ema = calculations.calculate_ema(prices, period)
-                if sma:
-                    result[f"sma_{period}"] = sma[-1]
-                    result[f"price_vs_sma_{period}"] = (prices[-1] / sma[-1] - 1) * 100
-                if ema:
-                    result[f"ema_{period}"] = ema[-1]
+        current_rsi = rsi[-1]
+        return {
+            "rsi": current_rsi,
+            "signal": "oversold" if current_rsi < 30 else "overbought" if current_rsi > 70 else "neutral",
+        }
 
-            # Golden/Death cross detection
-            sma_50 = calculations.calculate_sma(prices, 50)
-            sma_200 = calculations.calculate_sma(prices, 200)
-            if sma_50 and sma_200:
-                result["golden_cross"] = sma_50[-1] > sma_200[-1]
-                result["ma_spread"] = (sma_50[-1] / sma_200[-1] - 1) * 100
+    def _calculate_macd(self, prices: list[float]) -> dict[str, Any]:
+        """Calculate MACD indicator."""
+        macd = calculations.calculate_macd(prices, fast_period=12, slow_period=26, signal_period=9)
 
-            return result
+        if not macd["macd"]:
+            return {"macd": None, "trend": "unknown", "crossover": None}
 
-        elif tool_name == "calculate_rsi":
-            period = tool_input.get("period", 14)
-            rsi = calculations.calculate_rsi(prices, period)
-            if not rsi:
-                return {"error": "Insufficient data for RSI calculation"}
+        histogram = macd["histogram"]
+        signal = "bullish" if histogram[-1] > 0 else "bearish"
 
-            current_rsi = rsi[-1]
-            return {
-                "symbol": symbol,
-                "rsi": current_rsi,
-                "signal": "oversold" if current_rsi < 30 else "overbought" if current_rsi > 70 else "neutral",
-                "rsi_history_5d": rsi[-5:] if len(rsi) >= 5 else rsi,
-            }
+        crossover = None
+        if len(histogram) >= 2:
+            if histogram[-2] < 0 and histogram[-1] > 0:
+                crossover = "bullish_crossover"
+            elif histogram[-2] > 0 and histogram[-1] < 0:
+                crossover = "bearish_crossover"
 
-        elif tool_name == "calculate_macd":
-            macd = calculations.calculate_macd(
-                prices,
-                fast_period=tool_input.get("fast_period", 12),
-                slow_period=tool_input.get("slow_period", 26),
-                signal_period=tool_input.get("signal_period", 9),
-            )
+        return {
+            "macd": macd["macd"][-1],
+            "signal_line": macd["signal"][-1],
+            "histogram": histogram[-1],
+            "trend": signal,
+            "crossover": crossover,
+        }
 
-            if not macd["macd"]:
-                return {"error": "Insufficient data for MACD calculation"}
+    def _calculate_bollinger_bands(self, prices: list[float]) -> dict[str, Any]:
+        """Calculate Bollinger Bands."""
+        bb = calculations.calculate_bollinger_bands(prices, period=20, std_dev=2.0)
 
-            histogram = macd["histogram"]
-            signal = "bullish" if histogram[-1] > 0 else "bearish"
+        if not bb["upper"]:
+            return {"bb_position": None, "signal": "unknown", "band_width": None}
 
-            # Check for crossover
-            crossover = None
-            if len(histogram) >= 2:
-                if histogram[-2] < 0 and histogram[-1] > 0:
-                    crossover = "bullish_crossover"
-                elif histogram[-2] > 0 and histogram[-1] < 0:
-                    crossover = "bearish_crossover"
+        current_price = prices[-1]
+        upper = bb["upper"][-1]
+        lower = bb["lower"][-1]
+        middle = bb["middle"][-1]
 
-            return {
-                "symbol": symbol,
-                "macd": macd["macd"][-1],
-                "signal_line": macd["signal"][-1],
-                "histogram": histogram[-1],
-                "trend": signal,
-                "crossover": crossover,
-            }
+        bb_position = (current_price - lower) / (upper - lower) if upper != lower else 0.5
+        band_width = (upper - lower) / middle * 100
 
-        elif tool_name == "calculate_bollinger_bands":
-            bb = calculations.calculate_bollinger_bands(
-                prices,
-                period=tool_input.get("period", 20),
-                std_dev=tool_input.get("std_dev", 2.0),
-            )
+        return {
+            "upper_band": upper,
+            "middle_band": middle,
+            "lower_band": lower,
+            "bb_position": bb_position,
+            "signal": "oversold" if bb_position < 0.2 else "overbought" if bb_position > 0.8 else "neutral",
+            "band_width": band_width,
+            "volatility_level": "low" if band_width < 5 else "high" if band_width > 15 else "moderate",
+        }
 
-            if not bb["upper"]:
-                return {"error": "Insufficient data for Bollinger Bands"}
+    def _identify_support_resistance(self, prices: list[float]) -> dict[str, Any]:
+        """Identify support and resistance levels."""
+        levels = calculations.identify_support_resistance(prices)
+        current_price = prices[-1]
 
-            current_price = prices[-1]
-            upper = bb["upper"][-1]
-            lower = bb["lower"][-1]
-            middle = bb["middle"][-1]
+        support_levels = [l for l in levels if l.type == "support"]
+        resistance_levels = [l for l in levels if l.type == "resistance"]
 
-            # Position within bands (0 = lower, 1 = upper)
-            bb_position = (current_price - lower) / (upper - lower) if upper != lower else 0.5
+        nearest_support = None
+        nearest_resistance = None
 
-            return {
-                "symbol": symbol,
-                "upper_band": upper,
-                "middle_band": middle,
-                "lower_band": lower,
-                "current_price": current_price,
-                "bb_position": bb_position,
-                "signal": "oversold" if bb_position < 0.2 else "overbought" if bb_position > 0.8 else "neutral",
-                "band_width": (upper - lower) / middle * 100,  # Volatility indicator
-            }
+        for level in support_levels:
+            if level.level < current_price:
+                if nearest_support is None or level.level > nearest_support:
+                    nearest_support = level.level
 
-        elif tool_name == "identify_support_resistance":
-            levels = calculations.identify_support_resistance(prices)
-            current_price = prices[-1]
+        for level in resistance_levels:
+            if level.level > current_price:
+                if nearest_resistance is None or level.level < nearest_resistance:
+                    nearest_resistance = level.level
 
-            support_levels = [l for l in levels if l.type == "support"]
-            resistance_levels = [l for l in levels if l.type == "resistance"]
+        support_distance_pct = ((current_price - nearest_support) / current_price * 100) if nearest_support else None
+        resistance_distance_pct = ((nearest_resistance - current_price) / current_price * 100) if nearest_resistance else None
 
-            # Find nearest levels
-            nearest_support = None
-            nearest_resistance = None
+        return {
+            "nearest_support": nearest_support,
+            "nearest_resistance": nearest_resistance,
+            "support_distance_pct": support_distance_pct,
+            "resistance_distance_pct": resistance_distance_pct,
+        }
 
-            for level in support_levels:
-                if level.level < current_price:
-                    if nearest_support is None or level.level > nearest_support["level"]:
-                        nearest_support = {"level": level.level, "strength": level.strength}
+    def _calculate_trend(self, prices: list[float]) -> dict[str, Any]:
+        """Calculate trend direction and strength."""
+        trend = calculations.calculate_trend_strength(prices, 20)
 
-            for level in resistance_levels:
-                if level.level > current_price:
-                    if nearest_resistance is None or level.level < nearest_resistance["level"]:
-                        nearest_resistance = {"level": level.level, "strength": level.strength}
+        direction = "bullish" if trend["direction"] > 0 else "bearish" if trend["direction"] < 0 else "neutral"
 
-            return {
-                "symbol": symbol,
-                "current_price": current_price,
-                "nearest_support": nearest_support,
-                "nearest_resistance": nearest_resistance,
-                "support_levels": [{"level": l.level, "strength": l.strength} for l in support_levels[:5]],
-                "resistance_levels": [{"level": l.level, "strength": l.strength} for l in resistance_levels[:5]],
-            }
+        return {
+            "direction": direction,
+            "strength": abs(trend["trend_strength"]),
+            "period_return": trend["total_return"] * 100,
+        }
 
-        elif tool_name == "calculate_trend_strength":
-            period = tool_input.get("period", 20)
-            trend = calculations.calculate_trend_strength(prices, period)
-
-            return {
-                "symbol": symbol,
-                "trend_strength": trend["trend_strength"],
-                "direction": "uptrend" if trend["direction"] > 0 else "downtrend",
-                "period_return": trend["total_return"] * 100,
-            }
-
-        elif tool_name == "get_all_signals":
-            signals = calculations.calculate_technical_signals(prices)
-
-            return {
-                "symbol": symbol,
-                "current_price": prices[-1],
-                "signals": [
-                    {
-                        "indicator": s.indicator,
-                        "value": s.value,
-                        "signal": s.signal,
-                        "strength": s.strength,
-                    }
-                    for s in signals
-                ],
-                "overall_signal": self._aggregate_signals(signals),
-            }
-
-        else:
-            raise ValueError(f"Unknown tool: {tool_name}")
-
-    def _aggregate_signals(self, signals: list) -> dict[str, Any]:
+    def _aggregate_signals(self, rsi_signal: str, macd_trend: str, bb_signal: str, trend_direction: str) -> dict[str, Any]:
         """Aggregate multiple signals into overall assessment."""
-        if not signals:
-            return {"signal": "neutral", "score": 0}
+        signals = [rsi_signal, macd_trend, bb_signal, trend_direction]
 
-        bullish = sum(1 for s in signals if s.signal == "bullish")
-        bearish = sum(1 for s in signals if s.signal == "bearish")
+        bullish = sum(1 for s in signals if s in ["bullish", "oversold"])  # oversold is bullish signal
+        bearish = sum(1 for s in signals if s in ["bearish", "overbought"])  # overbought is bearish signal
         total = len(signals)
 
         score = (bullish - bearish) / total if total > 0 else 0
 
-        if score > 0.3:
-            signal = "bullish"
-        elif score < -0.3:
-            signal = "bearish"
+        if score > 0.25:
+            overall = "bullish"
+        elif score < -0.25:
+            overall = "bearish"
         else:
-            signal = "neutral"
+            overall = "neutral"
+
+        confidence = "high" if abs(score) > 0.5 else "medium" if abs(score) > 0.25 else "low"
 
         return {
-            "signal": signal,
+            "overall": overall,
             "score": score,
-            "bullish_count": bullish,
-            "bearish_count": bearish,
-            "neutral_count": total - bullish - bearish,
+            "confidence": confidence,
         }
+
+    def _generate_interpretation(self, symbol: str, trend: dict, momentum: dict, volatility: dict, signals: dict) -> str:
+        """Generate human-readable interpretation."""
+        parts = []
+
+        # Trend interpretation
+        if trend["direction"] == "bullish":
+            parts.append(f"{symbol} is in an uptrend with {trend['strength']:.1%} strength")
+        elif trend["direction"] == "bearish":
+            parts.append(f"{symbol} is in a downtrend with {trend['strength']:.1%} strength")
+        else:
+            parts.append(f"{symbol} is trading sideways")
+
+        # Momentum
+        if momentum.get("rsi"):
+            if momentum["rsi_signal"] == "oversold":
+                parts.append("RSI indicates oversold conditions (potential bounce)")
+            elif momentum["rsi_signal"] == "overbought":
+                parts.append("RSI indicates overbought conditions (potential pullback)")
+
+        if momentum.get("macd_crossover"):
+            if momentum["macd_crossover"] == "bullish_crossover":
+                parts.append("MACD just crossed bullish")
+            elif momentum["macd_crossover"] == "bearish_crossover":
+                parts.append("MACD just crossed bearish")
+
+        # Volatility
+        if volatility.get("volatility_level") == "high":
+            parts.append("Volatility is elevated")
+        elif volatility.get("volatility_level") == "low":
+            parts.append("Volatility is compressed (potential breakout setup)")
+
+        # Overall signal
+        if signals["overall"] == "bullish":
+            parts.append(f"Overall technical outlook is bullish ({signals['confidence']} confidence)")
+        elif signals["overall"] == "bearish":
+            parts.append(f"Overall technical outlook is bearish ({signals['confidence']} confidence)")
+        else:
+            parts.append("Technical signals are mixed")
+
+        return ". ".join(parts) + "."
 
     def analyze(
         self,
@@ -321,7 +216,7 @@ class TechnicalAnalysisAgent(BaseAgent):
         symbols: list[str],
     ) -> AgentResult:
         """
-        Perform technical analysis on price data.
+        Perform technical analysis on price data using computational methods.
 
         Args:
             price_data: Dict mapping symbol to list of OHLCV data
@@ -330,72 +225,85 @@ class TechnicalAnalysisAgent(BaseAgent):
         Returns:
             AgentResult with technical analysis
         """
-        # Cache prices for tool execution
+        # Extract closing prices
         self._price_cache = {}
         for symbol in symbols:
             if symbol in price_data:
                 self._price_cache[symbol] = [p["close"] for p in price_data[symbol]]
 
-        task = f"""Perform comprehensive technical analysis on the following symbols: {symbols}
+        results = {"symbols": {}}
+        interpretations = []
 
-For each symbol, analyze:
-1. Trend Analysis
-   - Moving average alignment (20, 50, 200)
-   - Golden/death cross status
-   - Overall trend direction and strength
+        for symbol in symbols:
+            prices = self._price_cache.get(symbol, [])
+            if not prices or len(prices) < 50:
+                continue
 
-2. Momentum Indicators
-   - RSI with overbought/oversold assessment
-   - MACD trend and crossover signals
+            current_price = prices[-1]
 
-3. Volatility Analysis
-   - Bollinger Band position
-   - Band width (volatility assessment)
+            # Calculate all indicators
+            ma_data = self._calculate_moving_averages(symbol, prices)
+            rsi_data = self._calculate_rsi(prices)
+            macd_data = self._calculate_macd(prices)
+            bb_data = self._calculate_bollinger_bands(prices)
+            levels_data = self._identify_support_resistance(prices)
+            trend_data = self._calculate_trend(prices)
 
-4. Key Levels
-   - Support and resistance levels
-   - Distance to key levels
+            # Determine MA alignment
+            ma_alignment = "bullish" if ma_data.get("golden_cross") else "bearish"
+            if ma_data.get("price_vs_sma_20", 0) > 0 and ma_data.get("price_vs_sma_50", 0) > 0:
+                ma_alignment = "strongly bullish"
+            elif ma_data.get("price_vs_sma_20", 0) < 0 and ma_data.get("price_vs_sma_50", 0) < 0:
+                ma_alignment = "strongly bearish"
 
-5. Signal Summary
-   - Aggregate all signals
-   - Provide actionable interpretation
+            # Aggregate signals
+            signals = self._aggregate_signals(
+                rsi_data.get("signal", "neutral"),
+                macd_data.get("trend", "neutral"),
+                bb_data.get("signal", "neutral"),
+                trend_data.get("direction", "neutral"),
+            )
 
-Return your analysis as structured JSON with the following schema:
-{{
-    "symbols": {{
-        "<symbol>": {{
-            "current_price": number,
-            "trend": {{
-                "direction": "bullish|bearish|neutral",
-                "strength": number,
-                "ma_alignment": "string"
-            }},
-            "momentum": {{
-                "rsi": number,
-                "rsi_signal": "string",
-                "macd_trend": "string",
-                "macd_crossover": "string|null"
-            }},
-            "volatility": {{
-                "bb_position": number,
-                "bb_signal": "string",
-                "volatility_level": "low|moderate|high"
-            }},
-            "levels": {{
-                "nearest_support": number,
-                "nearest_resistance": number,
-                "support_distance_pct": number,
-                "resistance_distance_pct": number
-            }},
-            "signals": {{
-                "overall": "bullish|bearish|neutral",
-                "score": number,
-                "confidence": "high|medium|low"
-            }},
-            "interpretation": "string"
-        }}
-    }},
-    "summary": "string"
-}}"""
+            # Build symbol result
+            symbol_result = {
+                "current_price": current_price,
+                "trend": {
+                    "direction": trend_data["direction"],
+                    "strength": trend_data["strength"],
+                    "ma_alignment": ma_alignment,
+                },
+                "momentum": {
+                    "rsi": rsi_data.get("rsi"),
+                    "rsi_signal": rsi_data.get("signal"),
+                    "macd_trend": macd_data.get("trend"),
+                    "macd_crossover": macd_data.get("crossover"),
+                },
+                "volatility": {
+                    "bb_position": bb_data.get("bb_position"),
+                    "bb_signal": bb_data.get("signal"),
+                    "volatility_level": bb_data.get("volatility_level"),
+                },
+                "levels": {
+                    "nearest_support": levels_data.get("nearest_support"),
+                    "nearest_resistance": levels_data.get("nearest_resistance"),
+                    "support_distance_pct": levels_data.get("support_distance_pct"),
+                    "resistance_distance_pct": levels_data.get("resistance_distance_pct"),
+                },
+                "signals": signals,
+                "interpretation": self._generate_interpretation(symbol, trend_data,
+                    {"rsi": rsi_data.get("rsi"), "rsi_signal": rsi_data.get("signal"),
+                     "macd_crossover": macd_data.get("crossover")},
+                    bb_data, signals),
+            }
 
-        return self.run(task, context={"available_symbols": list(self._price_cache.keys())})
+            results["symbols"][symbol] = symbol_result
+            interpretations.append(f"{symbol}: {signals['overall']} ({signals['confidence']} confidence)")
+
+        # Overall summary
+        results["summary"] = "Technical analysis complete. " + "; ".join(interpretations) if interpretations else "No symbols analyzed."
+
+        return AgentResult(
+            success=True,
+            data=results,
+            error=None,
+        )
