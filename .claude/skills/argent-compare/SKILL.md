@@ -1,5 +1,5 @@
 ---
-name: compare
+name: argent-compare
 description: Compare two assets side-by-side
 user-invocable: true
 argument-hint: [SYMBOL1] [SYMBOL2]
@@ -7,7 +7,7 @@ argument-hint: [SYMBOL1] [SYMBOL2]
 
 # Asset Comparison
 
-<command-name>compare</command-name>
+<command-name>argent-compare</command-name>
 
 Compare two assets side-by-side across multiple dimensions.
 
@@ -18,7 +18,7 @@ Compare two assets side-by-side across multiple dimensions.
 ## Workflow
 
 ### Step 1: Parallel Data Collection
-Use the **data-collector** agent for both symbols simultaneously:
+Use the **argent-data-collector** agent for both symbols simultaneously:
 
 Launch in parallel:
 ```
@@ -39,14 +39,14 @@ Collect market data for {SYMBOL2}:
 For each symbol, run the following agents in parallel:
 
 For **{SYMBOL1}**:
-- technical-analyst
-- risk-analyst
-- fundamental-analyst (if stock)
+- argent-technical-analyst
+- argent-risk-analyst
+- argent-fundamental-analyst (if stock)
 
 For **{SYMBOL2}**:
-- technical-analyst
-- risk-analyst
-- fundamental-analyst (if stock)
+- argent-technical-analyst
+- argent-risk-analyst
+- argent-fundamental-analyst (if stock)
 
 ### Step 3: Comparison Report
 After all analyses complete, synthesize a comparison:
@@ -100,8 +100,8 @@ Provide a clear recommendation on which asset is preferable based on:
 ## Example Usage
 
 ```
-/compare AAPL MSFT
-/compare BTC ETH
-/compare NVDA AMD
-/compare GOOGL META
+/argent-compare AAPL MSFT
+/argent-compare BTC ETH
+/argent-compare NVDA AMD
+/argent-compare GOOGL META
 ```

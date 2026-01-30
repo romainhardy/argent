@@ -1,5 +1,5 @@
 ---
-name: quick
+name: argent-quick
 description: Quick single-dimension analysis
 user-invocable: true
 argument-hint: [SYMBOL] [technical|fundamental|risk|sentiment|macro]
@@ -7,7 +7,7 @@ argument-hint: [SYMBOL] [technical|fundamental|risk|sentiment|macro]
 
 # Quick Analysis
 
-<command-name>quick</command-name>
+<command-name>argent-quick</command-name>
 
 Perform a focused, single-dimension analysis on a symbol.
 
@@ -25,7 +25,7 @@ Perform a focused, single-dimension analysis on a symbol.
 Based on the analysis type requested:
 
 ### Technical Analysis
-Use the **technical-analyst** agent:
+Use the **argent-technical-analyst** agent:
 ```
 Perform technical analysis on {SYMBOL}:
 - Current trend and strength
@@ -35,7 +35,7 @@ Perform technical analysis on {SYMBOL}:
 ```
 
 ### Fundamental Analysis
-Use the **fundamental-analyst** agent:
+Use the **argent-fundamental-analyst** agent:
 ```
 Perform fundamental analysis on {SYMBOL}:
 - Valuation metrics (P/E, PEG, P/B)
@@ -46,7 +46,7 @@ Perform fundamental analysis on {SYMBOL}:
 Note: Skip for cryptocurrencies.
 
 ### Risk Analysis
-Use the **risk-analyst** agent:
+Use the **argent-risk-analyst** agent:
 ```
 Perform risk analysis on {SYMBOL}:
 - Annualized volatility
@@ -57,7 +57,7 @@ Perform risk analysis on {SYMBOL}:
 ```
 
 ### Sentiment Analysis
-Use the **sentiment-analyst** agent:
+Use the **argent-sentiment-analyst** agent:
 ```
 Perform sentiment analysis on {SYMBOL}:
 - Recent news headlines and tone
@@ -67,7 +67,7 @@ Perform sentiment analysis on {SYMBOL}:
 ```
 
 ### Macro Analysis
-Use the **macro-analyst** agent:
+Use the **argent-macro-analyst** agent:
 ```
 Analyze current macroeconomic environment:
 - Economic cycle phase
@@ -87,9 +87,9 @@ Present a focused summary:
 ## Example Usage
 
 ```
-/quick AAPL technical
-/quick BTC risk
-/quick MSFT fundamental
-/quick SPY sentiment
-/quick macro
+/argent-quick AAPL technical
+/argent-quick BTC risk
+/argent-quick MSFT fundamental
+/argent-quick SPY sentiment
+/argent-quick macro
 ```
